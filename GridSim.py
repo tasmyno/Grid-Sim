@@ -7,11 +7,17 @@ import numpy
 
 class Simulator:
     def __init__(self, all_models):
+        """
+        This method creates a Simulator
+        :param all_models: list of Model objects
+        :return: a Simulator object
+        """
         self.all_models = all_models
         self.pdf = None
         self.queue = []
 
     def load_pdf(self, filename):
+        # This is a comment
         loaded_pdf = pandas.read_csv(filename)
         loaded_pdf = loaded_pdf.set_index("time")
         self.pdf = loaded_pdf.as_matrix()
@@ -33,6 +39,9 @@ class Simulator:
             print("Job", i, job.model.name, job.work_units, t)
 
     def update(self):
+        pass
+
+    def optimize(self):
         pass
 
 
