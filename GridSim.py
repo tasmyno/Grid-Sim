@@ -59,6 +59,8 @@ class Job:
         self.all_models = all_models
         self.model = None
         self.work_units = 0
+        self.total_simulations = 0
+        self.done = [1, 2]
 
     def randomize(self):
         # a random number is generated to choose which model is used
@@ -103,7 +105,7 @@ class WorkUnit:
         pass
 
     def update(self):
-        pass 
+        pass
 
 
 if __name__ == '__main__':
