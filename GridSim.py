@@ -151,6 +151,7 @@ class Computer:
         self.speed_computer = speed_computer
         self.work_unit_queue = []
         self.running = 0
+        self.available_comp = None
 
     def add_work_unit(self, work_unit):
         """
