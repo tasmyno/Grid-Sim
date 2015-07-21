@@ -61,6 +61,13 @@ class Job:
         self.work_units = 0
         self.total_simulations = 0
         self.done = [1, 2]
+        self.model_prob_list = None
+
+    def load_model_prob(self, filename2):
+        load_model_prob = pandas.read_csv(filename2)
+        load_model_prob = load_model_prob.set_index("Probability")
+        self.model_prob_list = load_model_prob.as_list()
+        print(model_prob_list)
 
     def randomize(self):
         # a random number is generated to choose which model is used
