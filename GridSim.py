@@ -94,8 +94,10 @@ class Computer:
         self.speedC = speedC
         self.queueC = []
         self.running = 0
+        self.available_comp = None
 
-    def computer(self):
+    def computer(self, grid_comp):
+        self.available_comp = grid_comp
         pass
 
 
