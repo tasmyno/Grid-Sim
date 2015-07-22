@@ -119,6 +119,7 @@ class Job:
         for i in range(len(simulator.queue)):
             job_model_name = Job.Model.name
             if job_model_name == "CakeCalculator":
+                self.num_sims = 11388 # these values were calculated but I think they are wrong
             elif job_model_name == "Flexi":
                 self.num_sims = 87108
             elif job_model_name == "HW2GbmEtaTPathGeneration":
