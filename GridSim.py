@@ -82,6 +82,7 @@ class Job:
         self.total_simulations = 0
         self.done = [1, 2]
         self.model_prob_list = None
+        self.num_sims = 0
 
     def load_model_prob(self, filename):
         """
@@ -115,6 +116,22 @@ class Job:
         This method breaks up the job into work-units
         :return: nothing
         """
+        for i in range(len(simulator.queue)):
+            job_model_name = Job.Model.name
+            if job_model_name == "CakeCalculator":
+            elif job_model_name == "Flexi":
+                self.num_sims = 87108
+            elif job_model_name == "HW2GbmEtaTPathGeneration":
+                self.num_sims = 2242
+            elif job_model_name == "Ldwpa":
+                self.num_sims = 587
+            elif job_model_name == "Smoothie":
+                self.num_sims = 295847
+            else:
+                self.num_sims = random.randint(4000, 16000)
+            self.work_units = self.num_sims / Computer.available_comp # not sure if this should be 6 for total amount of computers in the grid rather
+            self.work_units = round(work_units, 0)
+
         # TODO: Split the job into WorkUnit objects of equal size
         # TODO: Allocate Each Work Unit to a Computer from the list of Computer Objects
         pass
