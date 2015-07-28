@@ -83,6 +83,9 @@ class Job:
         self.done = [1, 2]
         self.model_prob_list = None
         self.num_sims = 0
+        self.mew_job_name = numpy.array()
+        self.num_sims_list = numpy.array()
+        self.work_units_list = numpy.array()
 
     def load_model_prob(self, filename):
         """
@@ -116,6 +119,8 @@ class Job:
         This method breaks up the job into work-units
         :return: nothing
         """
+        # TODO: Split the job into WorkUnit objects of equal size
+
         for i in range(len(simulator.queue)):
             job_model_name = Job.Model.name
             if job_model_name == "CakeCalculator":
@@ -130,11 +135,25 @@ class Job:
                 self.num_sims = 295847
             else:
                 self.num_sims = random.randint(4000, 16000)
-            self.work_units = self.num_sims / Computer.available_comp # not sure if this should be 6 for total amount of computers in the grid rather
-            self.work_units = round(work_units, 0)
 
-        # TODO: Split the job into WorkUnit objects of equal size
+            if num_sims >= 4000:
+                work_units = 1
+            else:
+                self.work_units = self.num_sims / Computer.available_comp # not sure if this should be 6 for total amount of computers in the grid rather
+                self.work_units = round(work_units, 0)
+
+            self.new_job_name.append(job_model_name) #trying to figure out away of creating a matrix of all the information 
+            self.work_units_list.append(work_units)
+            self.num_sims_list.append(num_sims)
+
+
+
+
+
+
         # TODO: Allocate Each Work Unit to a Computer from the list of Computer Objects
+
+
         pass
 
     def update(self):
