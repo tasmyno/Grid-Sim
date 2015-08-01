@@ -6,7 +6,7 @@ import numpy
 
 
 class Simulator:
-    def __init__(self, all_models):
+    def __init__(self, all_models, all_computers):
         """
         This method creates a Simulator
         :param all_models: list of Model objects
@@ -14,7 +14,11 @@ class Simulator:
         """
         self.all_models = all_models
         self.pdf = None
-        self.queue = []
+        # This is a queue of jobs
+        self.job_queue = []
+        # Added this concept
+        self.completed_jobs = []
+        self.all_computers = all_computers
 
     def load_pdf(self, filename):
         """
@@ -36,9 +40,11 @@ class Simulator:
             hour = i % 24
             probability = self.pdf[hour][day]
             if random.random() < probability:
-                j = Job(self.all_models)
+                j = Job(self.all_models, self.all_computers)
                 j.randomize()
-                self.queue.append(j)
+                j.split_to_work_units()
+                self.job_queue.append(j)
+                # Added this code to test things
 
     def print_job_queue(self):
         """
@@ -46,16 +52,26 @@ class Simulator:
         it requires and the time the job will take
         :return:
         """
-        for i in range(len(self.queue)):
-            job = self.queue[i]
-            t = job.work_units * job.model.speed
-            print("Job", i, job.model.name, job.work_units, t)
+        for i in range(len(self.job_queue)):
+            job = self.job_queue[i]
+            t = job.num_work_units * job.model.speed
+            print("Job", i, job.model.name, job.num_sims, t)
+            for wu in range(len(job.work_units)):
+                print("\tWork Unit", wu,
+                      "\tSims Done", job.work_units[wu].sims_done,
+                      "\tSims Left", job.work_units[wu].sims_left)
 
     def update(self):
         """
         This method updates the simulator's Job queue
         """
-        pass
+        for j in self.job_queue:
+            assert isinstance(j, Job)
+            j.update()
+            if j.done:
+                # Not tested yet.
+                self.completed_jobs.append(j)
+                self.job_queue.remove(j)
 
     def optimize(self):
         """
@@ -69,8 +85,7 @@ class Job:
     this class determines what type of model a job is
     and creates the amount of work units it will be ?
     """
-
-    def __init__(self, all_models):
+    def __init__(self, all_models, all_computers):
         """
         Initializes a Job object
         :param all_models: a list of all models available
@@ -78,10 +93,18 @@ class Job:
         """
         self.all_models = all_models
         self.model = None
-        self.work_units = []  # This should be a list of WorkUnit objects
+        self.num_work_units = []  # This should be a list of WorkUnit objects
         self.total_simulations = 0
-        self.done = [1, 2]
+        self.done = False
         self.model_prob_list = None
+        self.num_sims = 0
+        # I see what you were trying to do here but this info should be in the WorkUnit object
+        # self.new_job_name = numpy.array()
+        # self.num_sims_list = numpy.array()
+        self.work_units = []
+        self.all_computers = all_computers
+        # TODO: Add the concept of time here. I.e. when you create a new job pass a reference (an integer) which lets
+        # TODO: it know when the job was created. This will allow us to track how "long" each job takes / took
 
     def load_model_prob(self, filename):
         """
@@ -108,7 +131,7 @@ class Job:
         """
         index = random.randint(0, 2)
         self.model = self.all_models[index]
-        self.work_units = random.randint(4000, 16000)
+        self.num_work_units = random.randint(4000, 16000)
 
     def split_to_work_units(self):
         """
@@ -116,15 +139,60 @@ class Job:
         :return: nothing
         """
         # TODO: Split the job into WorkUnit objects of equal size
-        # TODO: Allocate Each Work Unit to a Computer from the list of Computer Objects
-        pass
+        # Changing this so that it splits this Job into work-units
+
+        assert isinstance(self.model, Model)
+
+        # Work out how many simulations are required for this job
+        # TODO: Consider moving this to the __init__ method?
+
+        if self.model.name == "CakeCalculator":
+            self.num_sims = 11388
+        elif self.model.name == "Flexi":
+            self.num_sims = 87108
+        elif self.model.name == "HW2GbmEtaTPathGeneration":
+            self.num_sims = 2242
+        elif self.model.name == "Ldwpa":
+            self.num_sims = 587
+        elif self.model.name == "Smoothie":
+            self.num_sims = 295847
+        else:
+            self.num_sims = random.randint(4000, 16000)
+
+        # If there are few sims there is one work unit
+
+        if self.num_sims <= 4000:
+            self.num_work_units = 1
+        else:
+            # CHanged the logic here slightly
+            self.num_work_units = int(self.num_sims / 4000)
+
+        # Now create and add work-units to the work-unit queue
+
+        for i in range(self.num_work_units):
+            work_unit_sims = round(self.num_sims / self.num_work_units, 0)
+            self.work_units.append(WorkUnit(work_unit_sims, self))
+
+        # Now allocate the unallocated work-units to computers
+
+        for i in range(len(self.work_units)):
+            computer_index = i % len(self.all_computers)
+            self.work_units[i].set_computer(self.all_computers[computer_index])
+            self.all_computers[computer_index].add_work_unit(self.work_units[i])
 
     def update(self):
         """
         This method updates the Job status
         :return:
         """
-        pass
+        self.done = True
+        # Loop through the work units and check if they are done
+        for work_unit in self.work_units:
+            assert isinstance(work_unit, WorkUnit)
+            # Update the work unit
+            work_unit.update()
+            if not work_unit.done:
+                self.done = False
 
 
 class Model:
@@ -158,25 +226,26 @@ class Computer:
         This method adds a work unit to a computer's queue
         :return:
         """
-        pass
+        self.work_unit_queue.append(work_unit)
 
 
 class WorkUnit:
     # You must pass in the parameters :)
-    def __init__(self, simulations, job, computer):
+    def __init__(self, simulations, job):
         """
         This method creates a WorkUnit object
         :param simulations: the number of simulations assigned to this WorkUnit
         :param job: A Job Object so that we know who this WorkUnit belongs to
-        :param computer: A Computer object so we know what Computer this WorkUnit is running on
         :return: A WorkUnit object
         """
         self.simulations = simulations
         self.job = job
-        self.computer = computer
         self.sims_done = 0
         self.sims_left = simulations
         self.done = [1, 2]
+        self.allocated = False
+        self.done = False
+        self.computer = None
 
     def update(self):
         """
@@ -196,6 +265,9 @@ class WorkUnit:
         # Then update the WorkUnit sims done by this amount
         pass
 
+    def set_computer(self, computer):
+        self.computer = computer
+
 
 if __name__ == '__main__':
     models = []  # Creates an empty list of models
@@ -205,11 +277,15 @@ if __name__ == '__main__':
     for m in model_prob.columns:
         models.append(Model(m, model_prob[m][1], model_prob[m][0]))
 
-    # TODO: Create a list of Computer objects just like we have a list of Model objects
-    # TODO: You can do this by constructing a file like the ModelProb.csv but with computer speed.
-    # TODO: Just assume one computer's speed is 1 and the other is 0.5
+    computers = []
+    num_computers = 6
+    for i in range(num_computers):
+        speed = 1.0
+        if i >= 3:
+            speed = 2.0
+        computers.append(Computer(speed))
 
-    simulator = Simulator(models)
+    simulator = Simulator(models, computers)
     simulator.load_pdf("Data/JointProbTotal.csv")
     simulator.simulate_jobs(2400)
     simulator.print_job_queue()
