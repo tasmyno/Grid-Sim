@@ -25,11 +25,10 @@ class Simulator:
         self.scheduled = []
         # A list of computer speeds
         self.computer_speeds = speeds
-        self.fitness_one = []
-        self.fitness_two = []
-        self.fitness_three = []
-        self.fitness_four = []
+        self.not_completed = []
+        self.time_over_budget = []
         self.seed = seed
+        self.epsilon = 0.05
 
     def load_pdf(self, filename):
         """
@@ -40,7 +39,7 @@ class Simulator:
         loaded_pdf = loaded_pdf.set_index("time")
         self.pdf = loaded_pdf.as_matrix()
 
-    def simulate_jobs(self, hours, optimize=True, print_status=True):
+    def simulate_jobs(self, hours, method, print_status=True):
         """
         Jobs are added if the random number generated is less than the probability of a job been added at that day and
         hour where the day and hour is calculated using a hour inputted
@@ -49,13 +48,12 @@ class Simulator:
         numpy.random.seed(self.seed)
         random.seed(self.seed)
         # Keeps track of the active job
-        active = -1
         num_jobs = 0
         for t in range(hours):
             self.T = t
             # Calculate time and probability of adding a job
             day, hour = t % 7, t % 24
-            probability = self.pdf[hour][day]
+            probability = self.pdf[hour][day] * 5
             # Determine if a job is added or not
             if random.random() < probability:
                 # Create a new Job object (randomly initialized)
@@ -63,29 +61,26 @@ class Simulator:
                 # Append to the Job schedule / queue
                 self.scheduled.append(j)
                 num_jobs += 1
-                if optimize and len(self.scheduled) > 1:
-                    self.optimize()
-                self.add_fitnesses()
+                if method != "none" and len(self.scheduled) > 1:
+                    self.optimize(method)
+            self.add_fitnesses()
             # If there are jobs in the queue
             if len(self.scheduled) > 0:
                 # Update the active job status
-                self.scheduled[active].update(t)
+                self.scheduled[0].running = True
+                self.scheduled[0].update(t)
                 # If the job is completed set active to -1
-                if self.scheduled[active].done:
+                if self.scheduled[0].done:
                     # Remove the job from the queue
-                    active_job = self.scheduled[active]
+                    active_job = self.scheduled[0]
                     self.scheduled.remove(active_job)
                     self.completed.append(active_job)
-                    active = -1
-                # If the list of scheduled jobs isn't empty
-                if len(self.scheduled) > 0:
-                    active, self.scheduled[0].running = 0, True
             # Print the job queue to console
             if print_status:
                 if t % 24 == 0:
-                    print("\nSimulation", t, "Active Job", active)
+                    print("\nSimulation", t)
                     self.print_job_queue()
-        return [self.fitness_one, self.fitness_two, self.fitness_three, self.fitness_four]
+        return [self.not_completed, self.time_over_budget]
 
     def print_job_queue(self, verbose=True):
         """
@@ -123,10 +118,9 @@ class Simulator:
         """
 
         :param priorities:
-        :param t:
         :return:
         """
-        queue = self.get_ordered_queue(priorities)
+        queue = self.order_queue(priorities)
         return self.get_fitness(queue)
 
     def get_ordered_queue(self, priorities):
@@ -135,87 +129,110 @@ class Simulator:
         :param priorities:
         :return:
         """
-        smalls = numpy.arange(0, 0.1, 0.1/len(priorities))
-        priorities += smalls
+        rands = numpy.random.uniform(low=0.01, high=0.05, size=len(priorities))
+        smalls = numpy.arange(0, 1.0, float(1.0/len(priorities)))
+        priorities += smalls + rands
         ordered_queue = []
-
         indices = numpy.arange(0, len(priorities), 1)
         indices_list = list(indices)
-
         while len(ordered_queue) < len(self.scheduled):
             min_p, min_i = float('+inf'), -1
-            for i in indices_list:
-                pi = priorities[i]
+            for index in indices_list:
+                pi = priorities[index]
                 if pi <= min_p:
-                    min_p = priorities[i]
-                    min_i = i
+                    min_p = priorities[index]
+                    min_i = index
             indices_list.remove(min_i)
             job_i = self.scheduled[min_i]
-            ordered_queue.append(copy.deepcopy(job_i))
+            ordered_queue.append(job_i)
         return ordered_queue
 
-    def get_fitness(self, queue, objective="sensitive"):
+    def order_queue(self, priorities):
+        """
+
+        :param priorities:
+        :return:
+        """
+        ordered_queue, n, i = [], len(priorities), 0
+        priorities_s = sorted(priorities)
+        while len(ordered_queue) < len(self.scheduled):
+            indices = numpy.where(priorities == priorities_s[i])[0]
+            i += len(indices)
+            for j in indices:
+                ordered_queue.append(copy.deepcopy(self.scheduled[j]))
+        return ordered_queue
+
+    def get_fitness(self, queue, objective='time over deadline'):
         """
 
         :return:
         """
-        time_over = 0
-        not_on_time = 0
+        not_completed = 0
+        time_over_deadline = 0
         cumulative_runtime = 0
         for j in queue:
-            assert isinstance(j, Job)
             runtime, deadline = j.get_objectives()
             cumulative_runtime += runtime
             expected = self.T + cumulative_runtime
+            time_over_deadline += expected - deadline
             if expected > deadline:
-                time_over += expected - deadline
-                not_on_time += 1
-        if objective == 'hours':
-            return time_over
-        elif objective == 'not completed':
-            return not_on_time
-        elif objective == 'proportion not completed':
-            return not_on_time / len(self.scheduled)
-        elif objective == 'sensitive':
-            return time_over * not_on_time
+                not_completed += 1
+        if objective == 'All':
+            return not_completed, time_over_deadline / (len(queue) + 1)
         else:
-            return time_over, not_on_time, (not_on_time / len(queue)), time_over * not_on_time
+            return pow(time_over_deadline / (len(queue) + 1), 2.0)
 
     def add_fitnesses(self):
-        f1, f2, f3, f4 = self.get_fitness(self.scheduled, "All")
-        self.fitness_one.append(f1)
-        self.fitness_two.append(f2)
-        self.fitness_three.append(f3)
-        self.fitness_four.append(f4)
+        time_over, not_completed = 0, 0
+        if len(self.completed) > 0:
+            for cj in self.completed:
+                time_over += cj.end - cj.deadline
+                if time_over > 0:
+                    not_completed += 1
+            time_over /= len(self.completed)
+            not_completed /= len(self.completed)
+        self.time_over_budget.append(time_over)
+        self.not_completed.append(not_completed)
+        # not_completed, time_over_budget = self.get_fitness(self.scheduled, "All")
+        # self.time_over_budget.append(time_over_budget)
+        # self.not_completed.append(not_completed)
 
-    def optimize(self, retries=15):
+    def optimize(self, method):
         """
 
         :return:
         """
-        best_f = float('+inf')
-        best_x = None
-        for i in range(retries):
-            priorities = numpy.random.uniform(size=len(self.scheduled))
+        # TODO: Include boundaries and constraints
+        # TODO: Include maximum iterations where applicable
+        # TODO: Include DEAP algorithms - genetic algorithm etc.
+        if method == "scipy.basinhopping":
+            priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
             res = opt.basinhopping(func=self.get_queue_fitness, x0=priorities)
-            if res.fun < best_f:
-                best_f = res.fun
-                best_x = res.x
-        self.update_queue(best_x)
+            self.update_queue(res.x)
+        elif method == "scipy.anneal":
+            priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
+            res = opt.anneal(func=self.get_queue_fitness, x0=priorities, maxiter=500, lower=0.0, upper=1.0)
+            self.update_queue(res[0])
+        else:
+            # Run default scipy.minimize function
+            best_f, best_x = float('+inf'), None
+            for i in range(15):
+                priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
+                res = opt.minimize(fun=self.get_queue_fitness, x0=priorities)
+                if res.fun < best_f:
+                    best_f = res.fun
+                    best_x = res.x
+            self.update_queue(best_x)
 
-    def update_queue(self, optimal_priorities):
+    def update_queue(self, priorities):
         """
 
-        :param optimal_priorities:
+        :param priorities:
         :return:
         """
-        optimal_queue = self.get_ordered_queue(optimal_priorities)
+        optimal_queue = self.order_queue(priorities)
         self.scheduled = None
-        self.scheduled = copy.deepcopy(optimal_queue)
-        for j in self.scheduled:
-            assert isinstance(j, Job)
-            j.running = False
-        self.scheduled[0].running = True
+        self.scheduled = optimal_queue
 
 
 class Job:
@@ -266,7 +283,12 @@ class Job:
             self.num_sims = 2048
         else:
         '''
-        power = random.randint(10, 15)
+        if self.model.name == "ModelOne":
+            power = random.randint(12, 15)
+        elif self.model.name == "ModelTwo":
+            power = random.randint(12, 15)
+        else:
+            power = random.randint(10, 13)
         self.num_sims = pow(2, power)
         if power < 12:
             self.budget = 24
@@ -297,7 +319,6 @@ class Job:
         self.done = True
         # Loop through the work units and check if they are done
         for work_unit in self.work_units:
-            assert isinstance(work_unit, WorkUnit)
             # Update the work unit
             if not work_unit.done:
                 work_unit.update()
@@ -313,7 +334,6 @@ class Job:
         """
         total_time = 0
         for wu in self.work_units:
-            # assert isinstance(wu, WorkUnit)
             total_time += wu.get_expected_time()
         return total_time
 
@@ -413,21 +433,25 @@ if __name__ == '__main__':
             speed = 2.0
         computers.append(speed)
 
-    result_names = ["Hours Over Deadline", "# Not Completed", "% Not Completed", "Sensitive Objective"]
-
     seed = random.randint(1000000, 1000000000)
-    simulator = Simulator(all_models, computers, seed)
-    simulator.load_pdf("Data/JointProbTotal.csv")
-    base = simulator.simulate_jobs(24000, optimize=False, print_status=True)
+    not_completed_results, hours_over_results = [], []
+    methods = ["none", "scipy.basinhopping", "scipy.anneal", "scipy.minimize"]
 
-    simulator = None
-    simulator = Simulator(all_models, computers, seed)
-    simulator.load_pdf("Data/JointProbTotal.csv")
-    optimized = simulator.simulate_jobs(24000, optimize=True, print_status=True)
+    for opt_method in methods:
+        simulator = Simulator(all_models, computers, seed)
+        simulator.load_pdf("Data/JointProbTotal.csv")
+        result = simulator.simulate_jobs(2904, opt_method, print_status=True)
+        not_completed_results.append(result[0])
+        hours_over_results.append(result[1])
 
-    for i in range(len(base)):
-        plt.plot(mavg(base[i], 48), label="Without Optimization")
-        plt.plot(mavg(optimized[i], 48), label="With Optimization")
-        plt.title(result_names[i])
-        plt.legend(loc="best")
-        plt.show()
+    for ix in range(len(not_completed_results)):
+        plt.plot(mavg(not_completed_results[ix], 12), label=methods[ix])
+    plt.title("# Percentage Jobs Not Completed within Budget")
+    plt.legend(loc="best")
+    plt.show()
+
+    for ix in range(len(hours_over_results)):
+        plt.plot(mavg(hours_over_results[ix], 12), label=methods[ix])
+    plt.title("# Average Hours over Budget completed")
+    plt.legend(loc="best")
+    plt.show()
