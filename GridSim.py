@@ -45,6 +45,7 @@ class Simulator:
         hour where the day and hour is calculated using a hour inputted
         :param hours: the number of hours to simulate jobs for
         """
+        # Seed the random number generator
         numpy.random.seed(self.seed)
         random.seed(self.seed)
         # Keeps track of the active job
@@ -78,7 +79,7 @@ class Simulator:
             # Print the job queue to console
             if print_status:
                 if t % 24 == 0:
-                    print("\nSimulation", t)
+                    print("\nTesting", method, "simulation", t)
                     self.print_job_queue()
         return [self.not_completed, self.time_over_budget]
 
@@ -180,7 +181,8 @@ class Simulator:
         if objective == 'All':
             return not_completed, time_over_deadline / (len(queue) + 1)
         else:
-            return pow(time_over_deadline / (len(queue) + 1), 2.0)
+            # return pow(time_over_deadline / (len(queue) + 1), 2.0)
+            return time_over_deadline
 
     def add_fitnesses(self):
         time_over, not_completed = 0, 0
@@ -206,7 +208,11 @@ class Simulator:
         # TODO: Include maximum iterations where applicable
         # TODO: Include DEAP algorithms - genetic algorithm etc.
         if method == "scipy.basinhopping":
+            # Create initial starting solution i.e. set of priorities
             priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
+            # This calls the optimization algorithm and returns a result object
+            # func=self.get_queue_fitness : this is the objective function
+            # x0=priorities : this is the solution you start with
             res = opt.basinhopping(func=self.get_queue_fitness, x0=priorities)
             self.update_queue(res.x)
         elif method == "scipy.anneal":
@@ -233,6 +239,8 @@ class Simulator:
         optimal_queue = self.order_queue(priorities)
         self.scheduled = None
         self.scheduled = optimal_queue
+        for j in self.scheduled:
+            j.running = False
 
 
 class Job:
@@ -290,12 +298,21 @@ class Job:
         else:
             power = random.randint(10, 13)
         self.num_sims = pow(2, power)
+        """
         if power < 12:
             self.budget = 24
         elif power < 14:
             self.budget = 48
         else:
             self.budget = 72
+        """
+        choice = random.randint(0, 2)
+        if choice == 0:
+            # This is a high priority run
+            self.budget = random.randint(6, 24)
+        else:
+            # This is a research & development run
+            self.budget = random.randint(48, 120)
         self.deadline = self.start + self.budget
         # Determine how many work-units to use
         self.work_units = []
@@ -332,10 +349,10 @@ class Job:
         This method returns the expected runtime of the job
         :return:
         """
-        total_time = 0
+        expected_run_time = 0
         for wu in self.work_units:
-            total_time += wu.get_expected_time()
-        return total_time
+            expected_run_time = max(expected_run_time, wu.get_expected_time())
+        return expected_run_time
 
     def get_objectives(self):
         return self.get_expected_runtime(), self.deadline
