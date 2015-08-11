@@ -6,6 +6,7 @@ import pandas
 import random
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
+from deap import base, creator, tools, algorithms
 
 
 class Simulator:
@@ -46,7 +47,7 @@ class Simulator:
         :param hours: the number of hours to simulate jobs for
         """
         # Seed the random number generator
-        numpy.random.seed(self.seed)
+        # numpy.random.seed(self.seed)
         random.seed(self.seed)
         # Keeps track of the active job
         num_jobs = 0
@@ -78,7 +79,7 @@ class Simulator:
                     self.completed.append(active_job)
             # Print the job queue to console
             if print_status:
-                if t % 24 == 0:
+                if t % 1 == 0:
                     print("\nTesting", method, "simulation", t)
                     self.print_job_queue()
         return [self.not_completed, self.time_over_budget]
@@ -115,12 +116,17 @@ class Simulator:
         for j in self.scheduled:
             j.update(t)
 
+    def get_queue_fitness_deap(self, priorities):
+        return -self.get_queue_fitness(priorities),
+
     def get_queue_fitness(self, priorities):
         """
 
         :param priorities:
         :return:
         """
+        if type(priorities) is list:
+            priorities = numpy.array(priorities)
         queue = self.order_queue(priorities)
         return self.get_fitness(queue)
 
@@ -154,6 +160,8 @@ class Simulator:
         :param priorities:
         :return:
         """
+        if numpy.isnan(priorities).any():
+            priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
         ordered_queue, n, i = [], len(priorities), 0
         priorities_s = sorted(priorities)
         while len(ordered_queue) < len(self.scheduled):
@@ -217,8 +225,35 @@ class Simulator:
             self.update_queue(res.x)
         elif method == "scipy.anneal":
             priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
-            res = opt.anneal(func=self.get_queue_fitness, x0=priorities, maxiter=500, lower=0.0, upper=1.0)
+            res = opt.anneal(func=self.get_queue_fitness, x0=priorities, maxiter=250, lower=0.0, upper=1.0)
             self.update_queue(res[0])
+        elif method == "deap.geneticalgorithm":
+            n = len(self.scheduled)
+            creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+            creator.create("Individual", numpy.ndarray, fitness=creator.FitnessMax)
+
+            toolbox = base.Toolbox()
+
+            toolbox.register("attr_bool", random.uniform, 0.0, 1.0)
+            toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_bool, n=n)
+            toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+
+            toolbox.register("mate", cxTwoPointCopy)
+            toolbox.register("evaluate", self.get_queue_fitness_deap)
+            toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
+            toolbox.register("select", tools.selTournament, tournsize=3)
+
+            pop = toolbox.population(n=50)
+            hof = tools.HallOfFame(1, similar=numpy.array_equal)
+
+            stats = tools.Statistics(lambda ind: ind.fitness.values)
+            stats.register("avg", numpy.mean)
+            stats.register("min", numpy.min)
+            stats.register("max", numpy.max)
+
+            pop, logbook = algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2, ngen=500,
+                                               stats=stats, halloffame=hof, verbose=False)
+            self.update_queue(hof[0])
         else:
             # Run default scipy.minimize function
             best_f, best_x = float('+inf'), None
@@ -427,6 +462,19 @@ class WorkUnit:
         return self.sims_left / slow_wu
 
 
+def cxTwoPointCopy(ind1, ind2):
+    size = len(ind1)
+    cxpoint1 = random.randint(1, size)
+    cxpoint2 = random.randint(1, size - 1)
+    if cxpoint2 >= cxpoint1:
+        cxpoint2 += 1
+    else: # Swap the two cx points
+        cxpoint1, cxpoint2 = cxpoint2, cxpoint1
+    ind1[cxpoint1:cxpoint2], ind2[cxpoint1:cxpoint2] \
+        = ind2[cxpoint1:cxpoint2].copy(), ind1[cxpoint1:cxpoint2].copy()
+    return ind1, ind2
+
+
 def mavg(data, n=3):
     fitnesses = numpy.array(data)
     ret = numpy.cumsum(fitnesses, dtype=float)
@@ -434,7 +482,7 @@ def mavg(data, n=3):
     return ret[n - 1:] / n
 
 
-if __name__ == '__main__':
+def run_experiments():
     all_models = []  # Creates an empty list of models
     # Loads the model probabilities in as a data frame
     model_prob = pandas.read_csv("Data/ModelProb.csv")
@@ -452,12 +500,12 @@ if __name__ == '__main__':
 
     seed = random.randint(1000000, 1000000000)
     not_completed_results, hours_over_results = [], []
-    methods = ["none", "scipy.basinhopping", "scipy.anneal", "scipy.minimize"]
+    methods = ["scipy.anneal", "none", "deap.geneticalgorithm", "scipy.basinhopping", "scipy.minimize"]
 
     for opt_method in methods:
         simulator = Simulator(all_models, computers, seed)
         simulator.load_pdf("Data/JointProbTotal.csv")
-        result = simulator.simulate_jobs(2904, opt_method, print_status=True)
+        result = simulator.simulate_jobs(3000, opt_method, print_status=True)
         not_completed_results.append(result[0])
         hours_over_results.append(result[1])
 
@@ -472,3 +520,7 @@ if __name__ == '__main__':
     plt.title("# Average Hours over Budget completed")
     plt.legend(loc="best")
     plt.show()
+
+
+if __name__ == '__main__':
+    run_experiments()
