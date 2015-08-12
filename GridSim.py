@@ -79,7 +79,7 @@ class Simulator:
                     self.completed.append(active_job)
             # Print the job queue to console
             if print_status:
-                if t % 1 == 0:
+                if t % 1000 == 0:
                     print("\nTesting", method, "simulation", t)
                     self.print_job_queue()
         return [self.not_completed, self.time_over_budget]
@@ -498,28 +498,42 @@ def run_experiments():
             speed = 2.0
         computers.append(speed)
 
-    seed = random.randint(1000000, 1000000000)
-    not_completed_results, hours_over_results = [], []
-    methods = ["scipy.anneal", "none", "deap.geneticalgorithm", "scipy.basinhopping", "scipy.minimize"]
+    methods = ["none", "scipy.basinhopping", "scipy.minimize", "scipy.anneal", "deap.geneticalgorithm"]
 
-    for opt_method in methods:
-        simulator = Simulator(all_models, computers, seed)
-        simulator.load_pdf("Data/JointProbTotal.csv")
-        result = simulator.simulate_jobs(3000, opt_method, print_status=True)
-        not_completed_results.append(result[0])
-        hours_over_results.append(result[1])
+    name_one = "Images/Percentage-Not-Completed ("
+    name_two = "Images/Hours-Over-Budget ("
+    suffix = ").jpg"
+    count = 1
 
-    for ix in range(len(not_completed_results)):
-        plt.plot(mavg(not_completed_results[ix], 12), label=methods[ix])
-    plt.title("# Percentage Jobs Not Completed within Budget")
-    plt.legend(loc="best")
-    plt.show()
+    while count < 5:
+        seed = random.randint(1000000, 1000000000)
+        not_completed_results, hours_over_results = [], []
+        for opt_method in methods:
+            simulator = Simulator(all_models, computers, seed)
+            simulator.load_pdf("Data/JointProbTotal.csv")
+            result = simulator.simulate_jobs(1500, opt_method, print_status=True)
+            not_completed_results.append(result[0])
+            hours_over_results.append(result[1])
 
-    for ix in range(len(hours_over_results)):
-        plt.plot(mavg(hours_over_results[ix], 12), label=methods[ix])
-    plt.title("# Average Hours over Budget completed")
-    plt.legend(loc="best")
-    plt.show()
+        for ix in range(len(not_completed_results)):
+            plt.plot(mavg(not_completed_results[ix], 6), label=methods[ix])
+        plt.title("Percentage of Jobs Not Completed Before Deadline")
+        plt.legend(loc="best")
+        plt.savefig(name_one + str(count) + suffix)
+        plt.clf()
+        plt.cla()
+        plt.close()
+
+        for ix in range(len(hours_over_results)):
+            plt.plot(mavg(hours_over_results[ix], 6), label=methods[ix])
+        plt.title("Average Hours over Deadline")
+        plt.legend(loc="best")
+        plt.savefig(name_two + str(count) + suffix)
+        plt.clf()
+        plt.cla()
+        plt.close()
+
+        count += 1
 
 
 if __name__ == '__main__':
