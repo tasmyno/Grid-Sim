@@ -7,6 +7,7 @@ new_split_file = "C:\Users\Tasmyn\Documents\BPJ\Grid Logs\\log-30-CS3 split.csv"
 
 new_file = open(new_split_file, 'w+')
 
+
 log = open(csv_file, "rb")
 
 cnt = 0

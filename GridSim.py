@@ -1,5 +1,6 @@
 __author__ = ""
 
+import math
 import copy
 import numpy
 import pandas
@@ -12,23 +13,30 @@ from deap import base, creator, tools, algorithms
 class Simulator:
     def __init__(self, models, speeds, seed):
         """
-        This method creates a Simulator object
-        :param models: list of Model objects
-        :return: a Simulator object
+        This method initializes a new simulator object
+        :param models: a list of available models
+        :param speeds: a lists of available computer speeds
+        :param seed: the random number generator seed - for comparison reasons
+        :return: a new Simulator object
         """
-        # A list of all available models
+        self.seed = seed
         self.all_models = models
-        # Probability density function
+        self.computer_speeds = speeds
+
+        # T keeps track of current time in the Simulation
+        # pdf is the probability density function
         self.T = 0
         self.pdf = None
-        # This is a queue of Job objects
+
+        # Queues of Job objects
         self.completed = []
         self.scheduled = []
-        # A list of computer speeds
-        self.computer_speeds = speeds
+
+        # Keeps track of performance metrics
         self.not_completed = []
         self.time_over_budget = []
-        self.seed = seed
+
+        # A small value
         self.epsilon = 0.05
 
     def load_pdf(self, filename):
@@ -40,37 +48,63 @@ class Simulator:
         loaded_pdf = loaded_pdf.set_index("time")
         self.pdf = loaded_pdf.as_matrix()
 
-    def simulate_jobs(self, hours, method, print_status=True):
+    def run_simulation(self, total_simulation_hours, optimization_method, print_status=True, plot_time=True):
         """
-        Jobs are added if the random number generated is less than the probability of a job been added at that day and
-        hour where the day and hour is calculated using a hour inputted
-        :param hours: the number of hours to simulate jobs for
+        This method runs a simulation. Each simulation
+        1) Adds jobs to the job queue using the probability density function
+           - Each job has an associated model, number of monte carlo simulations
+           - Each job keeps track of if it is running or not. If it is, it can be updated
+           - Only one job can be running at any given time (simplifying assumption)
+        2) Keeps track of which jobs have completed
+           - When a job is completed i.e. all monte carlo simulations are done, it is removed from the scheduled queue
+             and moved into the completed queue. Fitness metrics are based on completed jobs
+        3) Optimizes the order of the scheduled queue, using optimized priorities
+           - This is done using the specified method. Methods supported include:
+             a. Sequential Least Squares Programming
+             b. The basinhopping algorithm
+             c. Simulated Annealing
+             d. Genetic Algorithms
+
+        :param total_simulation_hours: the number of hours to simulate
+        :param optimization_method: the optimization method to use
+        :param print_status: boolean to print out or not
+        :param plot_time: boolean to print jobs by time metrics
+        :return: list of lists of fitness metrics for each time step
         """
-        # Seed the random number generator
-        # numpy.random.seed(self.seed)
+        # Seed the random number generator - done to ensure comparability between methods
         random.seed(self.seed)
-        # Keeps track of the active job
-        num_jobs = 0
-        for t in range(hours):
-            self.T = t
+        jobs_added = 0
+
+        jobs_added_by_hour = numpy.zeros(24)
+        jobs_added_by_day = numpy.zeros(7)
+
+        # For each time step in the number of hours
+        for time_step in range(total_simulation_hours):
+            self.T = time_step
             # Calculate time and probability of adding a job
-            day, hour = t % 7, t % 24
-            probability = self.pdf[hour][day] * 5
+            hour = time_step % 24
+            days = math.floor(time_step / 24)
+            day = math.floor(time_step / 24) % 7
+            # Probability of adding a job at that time
+            probability = self.pdf[hour][day]
             # Determine if a job is added or not
             if random.random() < probability:
                 # Create a new Job object (randomly initialized)
-                j = Job(self.all_models, self.computer_speeds, num_jobs, t)
-                # Append to the Job schedule / queue
+                j = Job(self.all_models, self.computer_speeds, jobs_added, time_step)
                 self.scheduled.append(j)
-                num_jobs += 1
-                if method != "none" and len(self.scheduled) > 1:
-                    self.optimize(method)
+                # Update tracking variables
+                jobs_added += 1
+                jobs_added_by_day[day] += 1
+                jobs_added_by_hour[hour] += 1
+                # Check if we should optimize the new queue
+                if optimization_method != "none" and len(self.scheduled) > 1:
+                    self.optimize(optimization_method)
             self.add_fitnesses()
             # If there are jobs in the queue
             if len(self.scheduled) > 0:
                 # Update the active job status
                 self.scheduled[0].running = True
-                self.scheduled[0].update(t)
+                self.scheduled[0].update(time_step)
                 # If the job is completed set active to -1
                 if self.scheduled[0].done:
                     # Remove the job from the queue
@@ -79,9 +113,34 @@ class Simulator:
                     self.completed.append(active_job)
             # Print the job queue to console
             if print_status:
-                if t % 1000 == 0:
-                    print("\nTesting", method, "simulation", t)
+                if time_step % 1000 == 0:
+                    # Print out the simulation time
+                    print("Simulation time", "T =", time_step,
+                          "; Days passed =", days,
+                          "; Day of week =", day,
+                          "; Hour of day =", hour,
+                          "; Optimization Method =", optimization_method)
+                    print("\nTesting", optimization_method, "simulation", time_step)
                     self.print_job_queue()
+
+        # Plot the jobs added by day
+        # These are for comparison to the real data
+        plt.style.use('ggplot')
+        x_axis = numpy.arange(0, 7, 1)
+        plt.bar(x_axis, jobs_added_by_day)
+        plt.title("Jobs added by day")
+        plt.show()
+        plt.close()
+
+        # Plot the jobs added by hour
+        # These are for comparison to the real data
+        plt.style.use('ggplot')
+        x_axis = numpy.arange(0, 24, 1)
+        plt.bar(x_axis, jobs_added_by_hour)
+        plt.title("Jobs added by hour of day")
+        plt.show()
+        plt.close()
+
         return [self.not_completed, self.time_over_budget]
 
     def print_job_queue(self, verbose=True):
@@ -370,11 +429,16 @@ class Job:
         """
         self.done = True
         # Loop through the work units and check if they are done
-        for work_unit in self.work_units:
+        counter = 0
+        for i in range(len(self.work_units)):
             # Update the work unit
-            if not work_unit.done:
-                work_unit.update()
+            if not self.work_units[i].done:
+                self.work_units[i].update()
                 self.done = False
+                counter += 1
+            if counter == 6:
+                i = len(self.work_units)
+                break
         if self.done is True:
             self.end = t
             self.runtime = self.end - self.start
@@ -384,10 +448,14 @@ class Job:
         This method returns the expected runtime of the job
         :return:
         """
+        count_non_zero = 0
         expected_run_time = 0
         for wu in self.work_units:
-            expected_run_time = max(expected_run_time, wu.get_expected_time())
-        return expected_run_time
+            wu_run_time = wu.get_expected_time()
+            if wu_run_time > 0:
+                count_non_zero += 1
+            expected_run_time = max(expected_run_time, wu_run_time)
+        return expected_run_time * int((count_non_zero / 6))
 
     def get_objectives(self):
         return self.get_expected_runtime(), self.deadline
@@ -498,7 +566,7 @@ def run_experiments():
             speed = 2.0
         computers.append(speed)
 
-    methods = ["none", "scipy.basinhopping", "scipy.minimize", "scipy.anneal", "deap.geneticalgorithm"]
+    methods = ["none", "scipy.basinhopping"] #, "scipy.minimize", "scipy.anneal", "deap.geneticalgorithm"]
 
     name_one = "Images/Percentage-Not-Completed ("
     name_two = "Images/Hours-Over-Budget ("
@@ -511,7 +579,7 @@ def run_experiments():
         for opt_method in methods:
             simulator = Simulator(all_models, computers, seed)
             simulator.load_pdf("Data/JointProbTotal.csv")
-            result = simulator.simulate_jobs(1500, opt_method, print_status=True)
+            result = simulator.run_simulation(4500, opt_method, print_status=True)
             not_completed_results.append(result[0])
             hours_over_results.append(result[1])
 
