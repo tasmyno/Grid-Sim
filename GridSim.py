@@ -86,7 +86,7 @@ class Simulator:
             days = math.floor(time_step / 24)
             day = math.floor(time_step / 24) % 7
             # Probability of adding a job at that time
-            probability = self.pdf[hour][day]
+            probability = self.pdf[hour][day] * 42
             # Determine if a job is added or not
             if random.random() < probability:
                 # Create a new Job object (randomly initialized)
@@ -123,23 +123,28 @@ class Simulator:
                     print("\nTesting", optimization_method, "simulation", time_step)
                     self.print_job_queue()
 
-        # Plot the jobs added by day
-        # These are for comparison to the real data
-        plt.style.use('ggplot')
-        x_axis = numpy.arange(0, 7, 1)
-        plt.bar(x_axis, jobs_added_by_day)
-        plt.title("Jobs added by day")
-        plt.show()
-        plt.close()
+        if plot_time:
+            # Plot the jobs added by day
+            # These are for comparison to the real data
+            plt.style.use('ggplot')
+            x_axis = numpy.arange(0, 7, 1)
+            jobs_by_day = numpy.array(jobs_added_by_day)
+            jobs_by_day = jobs_by_day / numpy.sum(jobs_by_day)
+            plt.bar(x_axis, jobs_by_day)
+            plt.title("Jobs added by day")
+            plt.show()
+            plt.close()
 
-        # Plot the jobs added by hour
-        # These are for comparison to the real data
-        plt.style.use('ggplot')
-        x_axis = numpy.arange(0, 24, 1)
-        plt.bar(x_axis, jobs_added_by_hour)
-        plt.title("Jobs added by hour of day")
-        plt.show()
-        plt.close()
+            # Plot the jobs added by hour
+            # These are for comparison to the real data
+            plt.style.use('ggplot')
+            x_axis = numpy.arange(0, 24, 1)
+            jobs_by_hour = numpy.array(jobs_added_by_hour)
+            jobs_by_hour = jobs_by_hour / numpy.sum(jobs_by_hour)
+            plt.bar(x_axis, jobs_by_hour)
+            plt.title("Jobs added by hour of day")
+            plt.show()
+            plt.close()
 
         return [self.not_completed, self.time_over_budget]
 
@@ -154,7 +159,7 @@ class Simulator:
                 complete = "Done! Runtime = " + str(job.runtime)
                 # Print the completed job to the console
                 print("Job ID: {0},\tModel: {1},\tSims: {2},\tDeadline time: {3},\tCompleted time : {4},\tStatus: {5}"
-                      .format(str(job.ix).zfill(4), job.model.number, str(job.num_sims).zfill(7),
+                      .format(str(job.ix).zfill(4), job.model.number, str(job.mc_sims).zfill(7),
                               str(job.deadline).zfill(5), str(job.end).zfill(5), complete))
         # For each job in the queue
         for i in range(len(self.scheduled)):
@@ -165,7 +170,7 @@ class Simulator:
                             + '%00d' % job.work_units[wu].sims + " "
             # Print out the job to the console
             print("Job ID: {0},\tModel: {1},\tSims: {2},\tDeadline time: {3},\tCompleted time : {4},\tStatus: {5}"
-                  .format(str(job.ix).zfill(4), job.model.number, str(job.num_sims).zfill(7),
+                  .format(str(job.ix).zfill(4), job.model.number, str(job.mc_sims).zfill(7),
                           str(job.deadline).zfill(5), str(job.end).zfill(5), complete))
 
     def update(self, t):
@@ -369,37 +374,26 @@ class Job:
         self.running = False
         self.done = False
         # Determine the total number of simulations to run
-        '''
-        self.num_sims = 0
+
+        self.mc_sims = 0
+        # OMPP
         if self.model.name == "ModelOne":
-            self.num_sims = 131072
+            self.mc_sims = 65536
+        # NewGen
         elif self.model.name == "ModelTwo":
-            self.num_sims = 65536
+            self.mc_sims = 4096
+        # WPA
         elif self.model.name == "ModelThree":
-            self.num_sims = 2048
+            self.mc_sims = 65536
+        # Flexi
         elif self.model.name == "ModelFour":
-            self.num_sims = 2048
+            self.mc_sims = 32768
+        # Smoothie
         elif self.model.name == "ModelFive":
-            self.num_sims = 16384
-        elif self.model.name == "ModelSix":
-            self.num_sims = 2048
+            self.mc_sims = 2097152
         else:
-        '''
-        if self.model.name == "ModelOne":
-            power = random.randint(12, 15)
-        elif self.model.name == "ModelTwo":
-            power = random.randint(12, 15)
-        else:
-            power = random.randint(10, 13)
-        self.num_sims = pow(2, power)
-        """
-        if power < 12:
-            self.budget = 24
-        elif power < 14:
-            self.budget = 48
-        else:
-            self.budget = 72
-        """
+            self.mc_sims = 1024
+
         choice = random.randint(0, 2)
         if choice == 0:
             # This is a high priority run
@@ -407,15 +401,16 @@ class Job:
         else:
             # This is a research & development run
             self.budget = random.randint(48, 120)
+
         self.deadline = self.start + self.budget
         # Determine how many work-units to use
         self.work_units = []
         self.num_work_units = 1
-        if self.num_sims > 4096:
-            self.num_work_units = int(self.num_sims / 4096)
+        if self.mc_sims > 4096:
+            self.num_work_units = int(self.mc_sims / 4096)
         # Split the job into work-units
         for i in range(self.num_work_units):
-            work_unit_sims = round(self.num_sims / self.num_work_units, 0)
+            work_unit_sims = round(self.mc_sims / self.num_work_units, 0)
             self.work_units.append(WorkUnit(work_unit_sims, self))
         # Split the job into work-units
         for i in range(len(self.work_units)):
@@ -568,18 +563,19 @@ def run_experiments():
 
     methods = ["none", "scipy.basinhopping"] #, "scipy.minimize", "scipy.anneal", "deap.geneticalgorithm"]
 
+    plt.style.use("bmh")
     name_one = "Images/Percentage-Not-Completed ("
     name_two = "Images/Hours-Over-Budget ("
     suffix = ").jpg"
     count = 1
 
-    while count < 5:
+    while count < 2:
         seed = random.randint(1000000, 1000000000)
         not_completed_results, hours_over_results = [], []
         for opt_method in methods:
             simulator = Simulator(all_models, computers, seed)
             simulator.load_pdf("Data/JointProbTotal.csv")
-            result = simulator.run_simulation(4500, opt_method, print_status=True)
+            result = simulator.run_simulation(25000, opt_method, print_status=True)
             not_completed_results.append(result[0])
             hours_over_results.append(result[1])
 
