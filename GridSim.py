@@ -5,6 +5,7 @@ import copy
 import numpy
 import pandas
 import random
+import cProfile
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
 from deap import base, creator, tools, algorithms
@@ -48,7 +49,7 @@ class Simulator:
         loaded_pdf = loaded_pdf.set_index("time")
         self.pdf = loaded_pdf.as_matrix()
 
-    def run_simulation(self, total_simulation_hours, optimization_method, print_status=True, plot_time=True):
+    def run_simulation(self, total_simulation_hours, optimization_method, print_status=False, plot_time=False):
         """
         This method runs a simulation. Each simulation
         1) Adds jobs to the job queue using the probability density function
@@ -97,8 +98,8 @@ class Simulator:
                 jobs_added_by_day[day] += 1
                 jobs_added_by_hour[hour] += 1
                 # Check if we should optimize the new queue
-                if optimization_method != "none" and len(self.scheduled) > 1:
-                    self.optimize(optimization_method)
+            if optimization_method != "none" and len(self.scheduled) > 1 and time_step % 6 == 0:
+                self.optimize(optimization_method)
             self.add_fitnesses()
             # If there are jobs in the queue
             if len(self.scheduled) > 0:
@@ -113,7 +114,7 @@ class Simulator:
                     self.completed.append(active_job)
             # Print the job queue to console
             if print_status:
-                if time_step % 1000 == 0:
+                if time_step % 6 == 0:
                     # Print out the simulation time
                     print("Simulation time", "T =", time_step,
                           "; Days passed =", days,
@@ -285,12 +286,8 @@ class Simulator:
             # This calls the optimization algorithm and returns a result object
             # func=self.get_queue_fitness : this is the objective function
             # x0=priorities : this is the solution you start with
-            res = opt.basinhopping(func=self.get_queue_fitness, x0=priorities)
+            res = opt.basinhopping(func=self.get_queue_fitness, x0=priorities, niter=100)
             self.update_queue(res.x)
-        elif method == "scipy.anneal":
-            priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
-            res = opt.anneal(func=self.get_queue_fitness, x0=priorities, maxiter=250, lower=0.0, upper=1.0)
-            self.update_queue(res[0])
         elif method == "deap.geneticalgorithm":
             n = len(self.scheduled)
             creator.create("FitnessMax", base.Fitness, weights=(1.0,))
@@ -307,7 +304,7 @@ class Simulator:
             toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
             toolbox.register("select", tools.selTournament, tournsize=3)
 
-            pop = toolbox.population(n=50)
+            pop = toolbox.population(n=150)
             hof = tools.HallOfFame(1, similar=numpy.array_equal)
 
             stats = tools.Statistics(lambda ind: ind.fitness.values)
@@ -315,7 +312,7 @@ class Simulator:
             stats.register("min", numpy.min)
             stats.register("max", numpy.max)
 
-            pop, logbook = algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2, ngen=500,
+            pop, logbook = algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2, ngen=100,
                                                stats=stats, halloffame=hof, verbose=False)
             self.update_queue(hof[0])
         else:
@@ -425,13 +422,14 @@ class Job:
         self.done = True
         # Loop through the work units and check if they are done
         counter = 0
+        wu_per_hour = int((self.model.speed / 4096) * 6)
         for i in range(len(self.work_units)):
             # Update the work unit
             if not self.work_units[i].done:
                 self.work_units[i].update()
                 self.done = False
                 counter += 1
-            if counter == 6:
+            if counter == wu_per_hour:
                 i = len(self.work_units)
                 break
         if self.done is True:
@@ -445,19 +443,20 @@ class Job:
         """
         count_non_zero = 0
         expected_run_time = 0
+        wu_per_hour = int((self.model.speed / 4096) * 6)
         for wu in self.work_units:
             wu_run_time = wu.get_expected_time()
             if wu_run_time > 0:
                 count_non_zero += 1
             expected_run_time = max(expected_run_time, wu_run_time)
-        return expected_run_time * int((count_non_zero / 6))
+        return expected_run_time * int((count_non_zero / wu_per_hour))
 
     def get_objectives(self):
         return self.get_expected_runtime(), self.deadline
 
 
 class Model:
-    def __init__(self, name, speed, prob):
+    def __init__(self, name, prob, speed):
         """
         This method creates a Model object
         :param name: name of the model
@@ -545,13 +544,96 @@ def mavg(data, n=3):
     return ret[n - 1:] / n
 
 
+def optimize_model_parameters():
+    computers = []
+    num_computers = 6
+    for ix in range(num_computers):
+        speed = 1.0
+        if ix >= 3:
+            speed = 2.0
+        computers.append(speed)
+
+    methods = ["none"] #, "scipy.basinhopping"] #, "scipy.minimize", "scipy.anneal", "deap.geneticalgorithm"]
+
+    plt.style.use("bmh")
+    name_one = "Images/Percentage-Not-Completed ("
+    name_two = "Images/Hours-Over-Budget ("
+    suffix = ").jpg"
+    count = 0
+
+    power_choices = []
+    start = 4096
+    while start <= 102400:
+        power_choices.append(start)
+        start += 4096
+
+    best_power_list, best_fit, best_average = [53248, 49152, 4096, 81920, 57344], float('+inf'), float('+inf')
+    while count < 1000:
+        # Optimization stuff
+        powers_list = list(numpy.random.choice(power_choices, size=5))
+        if count == 0:
+            powers_list = best_power_list
+        print("Attempt", count, best_power_list, best_fit, best_average)
+
+        if count % 5 == 0:
+            small_powers = numpy.random.randint(low=7, high=9, size=5)
+            for i in range(len(powers_list)):
+                if random.random() < 0.5:
+                    powers_list = best_power_list + pow(2, small_powers[i])
+                else:
+                    powers_list = best_power_list - pow(2, small_powers[i])
+
+        all_models = []  # Creates an empty list of models
+        # Loads the model probabilities in as a data frame
+        model_prob = pandas.read_csv("Data/ModelProb.csv")
+        # Loop through each model
+        for i in range(len(model_prob.columns)):
+            m = model_prob.columns[i]
+            all_models.append(Model(m, model_prob[m][0], powers_list[i]))
+
+        not_completed_results = []
+        for j in range(100):
+            for opt_method in methods:
+                seed = random.randint(1000000, 1000000000)
+                simulator = Simulator(all_models, computers, seed)
+                simulator.load_pdf("Data/JointProbTotal.csv")
+                result = simulator.run_simulation(3000, opt_method, print_status=False)
+
+                nc_one = result[0][0:1000]
+                mean_one = numpy.array(nc_one).mean()
+
+                nc_two = result[0][1000:2000]
+                mean_two = numpy.array(nc_two).mean()
+
+                nc_three = result[0][2000:3000]
+                mean_three = numpy.array(nc_three).mean()
+
+                not_completed_results.append([mean_one, mean_two, mean_three])
+
+                print("\t", j, numpy.array([mean_one, mean_two, mean_three]))
+
+        summary = numpy.zeros(3)
+        for i in range(len(not_completed_results)):
+            summary += not_completed_results[i]
+        summary /= len(not_completed_results)
+
+        fit = pow(abs(summary[0] - 0.3), 2) + pow(abs(summary[1] - 0.3), 2) + pow(abs(summary[2] - 0.3), 2)
+        if fit < best_fit:
+            best_fit = fit
+            best_average = summary.mean()
+            best_power_list = powers_list
+            print("Update!")
+
+        count += 1
+
+
 def run_experiments():
     all_models = []  # Creates an empty list of models
     # Loads the model probabilities in as a data frame
     model_prob = pandas.read_csv("Data/ModelProb.csv")
     # Loop through each model
     for m in model_prob.columns:
-        all_models.append(Model(m, model_prob[m][1], model_prob[m][0]))
+        all_models.append(Model(m, model_prob[m][0], model_prob[m][1]))
 
     computers = []
     num_computers = 6
@@ -561,7 +643,8 @@ def run_experiments():
             speed = 2.0
         computers.append(speed)
 
-    methods = ["none", "scipy.basinhopping"] #, "scipy.minimize", "scipy.anneal", "deap.geneticalgorithm"]
+    methods = ["none", "scipy.basinhopping", "deap.geneticalgorithm"]
+    # "scipy.basinhopping", "scipy.minimize",
 
     plt.style.use("bmh")
     name_one = "Images/Percentage-Not-Completed ("
@@ -569,13 +652,13 @@ def run_experiments():
     suffix = ").jpg"
     count = 1
 
-    while count < 2:
+    while count < 30:
         seed = random.randint(1000000, 1000000000)
         not_completed_results, hours_over_results = [], []
         for opt_method in methods:
             simulator = Simulator(all_models, computers, seed)
             simulator.load_pdf("Data/JointProbTotal.csv")
-            result = simulator.run_simulation(25000, opt_method, print_status=True)
+            result = simulator.run_simulation(300, opt_method, print_status=True)
             not_completed_results.append(result[0])
             hours_over_results.append(result[1])
 
@@ -602,3 +685,4 @@ def run_experiments():
 
 if __name__ == '__main__':
     run_experiments()
+    # optimize_model_parameters()
