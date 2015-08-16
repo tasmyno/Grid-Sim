@@ -49,7 +49,8 @@ class Simulator:
         loaded_pdf = loaded_pdf.set_index("time")
         self.pdf = loaded_pdf.as_matrix()
 
-    def run_simulation(self, total_simulation_hours, optimization_method, print_status=False, plot_time=False):
+    def run_simulation(self, total_simulation_hours, optimization_method,
+                       print_status=False, plot_time=False, print_job_queue=False):
         """
         This method runs a simulation. Each simulation
         1) Adds jobs to the job queue using the probability density function
@@ -76,6 +77,7 @@ class Simulator:
         random.seed(self.seed)
         jobs_added = 0
 
+        # For testing the model vs. real world
         jobs_added_by_hour = numpy.zeros(24)
         jobs_added_by_day = numpy.zeros(7)
 
@@ -84,10 +86,10 @@ class Simulator:
             self.T = time_step
             # Calculate time and probability of adding a job
             hour = time_step % 24
-            days = math.floor(time_step / 24)
             day = math.floor(time_step / 24) % 7
-            # Probability of adding a job at that time
             probability = self.pdf[hour][day] * 42
+            days_passed = math.floor(time_step / 24)
+
             # Determine if a job is added or not
             if random.random() < probability:
                 # Create a new Job object (randomly initialized)
@@ -97,9 +99,16 @@ class Simulator:
                 jobs_added += 1
                 jobs_added_by_day[day] += 1
                 jobs_added_by_hour[hour] += 1
-                # Check if we should optimize the new queue
+
+            # Update the schedule in some way i.e. optimize of as is
             if optimization_method != "none" and len(self.scheduled) > 1 and time_step % 6 == 0:
+                # Optimize the scheduled job queue
                 self.optimize(optimization_method)
+            elif optimization_method == "none":
+                # Implement the as-is priority system
+                self.current_solution()
+
+            # Keep track of fitness values
             self.add_fitnesses()
             # If there are jobs in the queue
             if len(self.scheduled) > 0:
@@ -112,46 +121,64 @@ class Simulator:
                     active_job = self.scheduled[0]
                     self.scheduled.remove(active_job)
                     self.completed.append(active_job)
+
             # Print the job queue to console
             if print_status:
                 if time_step % 6 == 0:
                     # Print out the simulation time
                     print("Simulation time", "T =", time_step,
-                          "; Days passed =", days,
+                          "; Days passed =", days_passed,
                           "; Day of week =", day,
                           "; Hour of day =", hour,
                           "; Optimization Method =", optimization_method)
                     print("\nTesting", optimization_method, "simulation", time_step)
-                    self.print_job_queue()
+                    if print_job_queue:
+                        self.print_job_queue()
 
+        # Comparison of real world to model
         if plot_time:
-            # Plot the jobs added by day
-            # These are for comparison to the real data
-            plt.style.use('ggplot')
-            x_axis = numpy.arange(0, 7, 1)
-            jobs_by_day = numpy.array(jobs_added_by_day)
-            jobs_by_day = jobs_by_day / numpy.sum(jobs_by_day)
-            plt.bar(x_axis, jobs_by_day)
-            plt.title("Jobs added by day")
-            plt.show()
-            plt.close()
+            self.plot_time(jobs_added_by_day, jobs_added_by_hour)
 
-            # Plot the jobs added by hour
-            # These are for comparison to the real data
-            plt.style.use('ggplot')
-            x_axis = numpy.arange(0, 24, 1)
-            jobs_by_hour = numpy.array(jobs_added_by_hour)
-            jobs_by_hour = jobs_by_hour / numpy.sum(jobs_by_hour)
-            plt.bar(x_axis, jobs_by_hour)
-            plt.title("Jobs added by hour of day")
-            plt.show()
-            plt.close()
-
+        # Return the fitness values for graphing and comparing methods
         return [self.not_completed, self.time_over_budget]
+
+    def plot_time(self, jobs_added_by_day, jobs_added_by_hour):
+        """
+        This method plots the probability (percentage) of jobs added firstly by day and then by hour. This method is
+        used to compare the output of the model to the real world to determine whether the simulator is an accurate
+        representation of the real world or not.
+        :param jobs_added_by_day: histogram of jobs added by day
+        :param jobs_added_by_hour: histogram of jobs added by hour
+        :return: nothing
+        """
+        # Plot the jobs added by day
+        # These are for comparison to the real data
+        plt.style.use('ggplot')
+        x_axis = numpy.arange(0, 7, 1)
+        jobs_by_day = numpy.array(jobs_added_by_day)
+        jobs_by_day = jobs_by_day / numpy.sum(jobs_by_day)
+        plt.bar(x_axis, jobs_by_day)
+        plt.title("Jobs added by day")
+        plt.show()
+        plt.close()
+
+        # Plot the jobs added by hour
+        # These are for comparison to the real data
+        plt.style.use('ggplot')
+        x_axis = numpy.arange(0, 24, 1)
+        jobs_by_hour = numpy.array(jobs_added_by_hour)
+        jobs_by_hour = jobs_by_hour / numpy.sum(jobs_by_hour)
+        plt.bar(x_axis, jobs_by_hour)
+        plt.title("Jobs added by hour of day")
+        plt.show()
+        plt.close()
 
     def print_job_queue(self, verbose=True):
         """
-        This method prints out the job queue to the console
+        This method prints out the job queue to the console. If verbose is true then both completed and scheduled jobs
+        are printed out to the console, otherwise only the scheduled jobs are printed out.
+        :param verbose: print completed jobs?
+        :return: nothing
         """
         if verbose:
             # For each job in the queue
@@ -176,19 +203,27 @@ class Simulator:
 
     def update(self, t):
         """
-        This method updates the simulator's Job queue
+        This method just updates the jobs in the scheduled queue
+        :param t: the time now
+        :return: nothing
         """
         for j in self.scheduled:
             j.update(t)
 
     def get_queue_fitness_deap(self, priorities):
+        """
+        This method just returns the output from the get_queue_fitness method as (A) a maximization objective - since
+        the DEAP packages works best with maximization problems, and (B) a tuple because the output has to be a tuple
+        :param priorities: the list of priorities for the jobs
+        :return: the fitness of the job queue constructed using the fitnesses
+        """
         return -self.get_queue_fitness(priorities),
 
     def get_queue_fitness(self, priorities):
         """
-
-        :param priorities:
-        :return:
+        This method creates an ordered queue using the priorities and calculates it's fitness value
+        :param priorities: the list of priorities for the jobs
+        :return: the fitness of the job queue constructed using the fitnesses
         """
         if type(priorities) is list:
             priorities = numpy.array(priorities)
@@ -197,9 +232,10 @@ class Simulator:
 
     def get_ordered_queue(self, priorities):
         """
-
-        :param priorities:
-        :return:
+        This method constructs an ordered queue using the fitness priorities.
+        DEPRECATED - this method is very computationally expensive and slow!
+        :param priorities: this a list or numpy array of fitness values
+        :return: a list of the jobs in the scheduled queue except that they are now ordered
         """
         rands = numpy.random.uniform(low=0.01, high=0.05, size=len(priorities))
         smalls = numpy.arange(0, 1.0, float(1.0/len(priorities)))
@@ -221,34 +257,46 @@ class Simulator:
 
     def order_queue(self, priorities):
         """
-
-        :param priorities:
-        :return:
+        This method constructs an ordered queue using the fitness priorities. The difference between this method and
+        the previous one is that this uses the numpy.where() method to identify the location of the nth biggest priority
+        in the queue each time. This is then added, in order of priority, to the ordered queue.
+        :param priorities: this a list or numpy array of fitness values
+        :return: a list of the jobs in the scheduled queue except that they are now ordered
         """
+        # This is just a check to make sure the algorithms didn't return any NaN priorities.
         if numpy.isnan(priorities).any():
             priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
         ordered_queue, n, i = [], len(priorities), 0
         priorities_s = sorted(priorities)
+        # While the ordered queue still doesnt have all the jobs
         while len(ordered_queue) < len(self.scheduled):
+            # Identify the location of the nth biggest priority in the original priority list
             indices = numpy.where(priorities == priorities_s[i])[0]
+            # Update the trackers
             i += len(indices)
             for j in indices:
-                ordered_queue.append(copy.deepcopy(self.scheduled[j]))
+                # deep copy ?
+                ordered_queue.append(self.scheduled[j])
         return ordered_queue
 
     def get_fitness(self, queue, objective='time over deadline'):
         """
-
-        :return:
+        This method returns the fitness of a queue. Fitness is measured by either the total hours over the deadline of
+        all completed jobs, the average of the total hours over deadline of all completed jobs, or the percentage of
+        jobs which were not completed on time. These are the quantities being optimized.
+        :return: the fitness value
         """
         not_completed = 0
         time_over_deadline = 0
         cumulative_runtime = 0
+        # Work out how many are not completed on time
         for j in queue:
             runtime, deadline = j.get_objectives()
             cumulative_runtime += runtime
             expected = self.T + cumulative_runtime
+            # Keep track of hours over the deadline
             time_over_deadline += expected - deadline
+            # If not completed on time increment the counter
             if expected > deadline:
                 not_completed += 1
         if objective == 'All':
@@ -258,6 +306,10 @@ class Simulator:
             return time_over_deadline
 
     def add_fitnesses(self):
+        """
+        This method just adds fitness values to lists so that they can be graphed at the end of the simulation.
+        :return: nothing
+        """
         time_over, not_completed = 0, 0
         if len(self.completed) > 0:
             for cj in self.completed:
@@ -268,18 +320,12 @@ class Simulator:
             not_completed /= len(self.completed)
         self.time_over_budget.append(time_over)
         self.not_completed.append(not_completed)
-        # not_completed, time_over_budget = self.get_fitness(self.scheduled, "All")
-        # self.time_over_budget.append(time_over_budget)
-        # self.not_completed.append(not_completed)
 
     def optimize(self, method):
         """
-
-        :return:
+        This method uses an optimization algorithm to create an optimal set of priorities.
+        :return: the optimal set of priorities of the scheduled jobs
         """
-        # TODO: Include boundaries and constraints
-        # TODO: Include maximum iterations where applicable
-        # TODO: Include DEAP algorithms - genetic algorithm etc.
         if method == "scipy.basinhopping":
             # Create initial starting solution i.e. set of priorities
             priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
@@ -289,35 +335,30 @@ class Simulator:
             res = opt.basinhopping(func=self.get_queue_fitness, x0=priorities, niter=100)
             self.update_queue(res.x)
         elif method == "deap.geneticalgorithm":
+            # The genetic algorithm works using the DEAP package
             n = len(self.scheduled)
             creator.create("FitnessMax", base.Fitness, weights=(1.0,))
             creator.create("Individual", numpy.ndarray, fitness=creator.FitnessMax)
-
+            # Specify the parameters and operators for the genetic algorithm
             toolbox = base.Toolbox()
-
             toolbox.register("attr_bool", random.uniform, 0.0, 1.0)
             toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_bool, n=n)
             toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-
             toolbox.register("mate", cxTwoPointCopy)
             toolbox.register("evaluate", self.get_queue_fitness_deap)
             toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
             toolbox.register("select", tools.selTournament, tournsize=3)
-
+            # Create the population and hall of fame containers
             pop = toolbox.population(n=150)
             hof = tools.HallOfFame(1, similar=numpy.array_equal)
-
-            stats = tools.Statistics(lambda ind: ind.fitness.values)
-            stats.register("avg", numpy.mean)
-            stats.register("min", numpy.min)
-            stats.register("max", numpy.max)
-
+            # Run the optimization algorithm to get the optimal priorities
             pop, logbook = algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2, ngen=100,
-                                               stats=stats, halloffame=hof, verbose=False)
+                                               halloffame=hof, verbose=False)
             self.update_queue(hof[0])
         else:
             # Run default scipy.minimize function
             best_f, best_x = float('+inf'), None
+            # 15 independent starts
             for i in range(15):
                 priorities = numpy.random.uniform(low=0.0, high=1.0, size=len(self.scheduled))
                 res = opt.minimize(fun=self.get_queue_fitness, x0=priorities)
@@ -328,15 +369,27 @@ class Simulator:
 
     def update_queue(self, priorities):
         """
-
-        :param priorities:
-        :return:
+        This method essentially updates the scheduled job queue with an ordered queue of jobs which have been ordered
+        as per the priorities passed through to the method.
+        :param priorities: the optimal priorities.
+        :return: nothing
         """
         optimal_queue = self.order_queue(priorities)
         self.scheduled = None
         self.scheduled = optimal_queue
         for j in self.scheduled:
             j.running = False
+
+    def current_solution(self):
+        """
+        This method implements the as-is solution. It gets the priorities of the jobs (between 1 and 5) from each job,
+        adds it to a numpy array of priorities and updates the queue using these priorities.
+        :return: nothing
+        """
+        priorities = numpy.zeros(len(self.scheduled))
+        for i in range(len(self.scheduled)):
+            priorities[i] = self.scheduled[i].priority
+        self.update_queue(priorities)
 
 
 class Job:
@@ -345,13 +398,6 @@ class Job:
         Initializes a Job object
         :param models: a list of all models available
         :return: a Job object
-
-        ModelOne    - Smoothie, slow model convergence .. many simulations
-        ModelTwo    - Flexi, slow model convergence .. many simulations
-        ModelThree  - Cake Calculator, architecture .. few simulations
-        ModelFour   - Path Generator, architecture .. few simulations
-        ModelFive   - LDWPA, fast model convergence .. fewer simulations
-        ModelSix    - HWGBM, architecture .. few simulations
         """
         self.ix = index
         self.models = models
@@ -372,6 +418,7 @@ class Job:
         self.done = False
         # Determine the total number of simulations to run
 
+        # This information was obtained from the data analysis
         self.mc_sims = 0
         # OMPP
         if self.model.name == "ModelOne":
@@ -395,20 +442,24 @@ class Job:
         if choice == 0:
             # This is a high priority run
             self.budget = random.randint(6, 24)
+            self.priority = random.randint(4, 5)
         else:
             # This is a research & development run
             self.budget = random.randint(48, 120)
-
+            self.priority = random.randint(1, 3)
         self.deadline = self.start + self.budget
+
         # Determine how many work-units to use
         self.work_units = []
         self.num_work_units = 1
         if self.mc_sims > 4096:
             self.num_work_units = int(self.mc_sims / 4096)
+
         # Split the job into work-units
         for i in range(self.num_work_units):
             work_unit_sims = round(self.mc_sims / self.num_work_units, 0)
             self.work_units.append(WorkUnit(work_unit_sims, self))
+
         # Split the job into work-units
         for i in range(len(self.work_units)):
             computer_index = i % len(self.computer_speeds)
@@ -436,6 +487,31 @@ class Job:
             self.end = t
             self.runtime = self.end - self.start
 
+    def update_test(self, t):
+        """
+        This method was just an attempt to do the above method quicker. Didn't work.
+        :param t:
+        :return:
+        """
+        wu_per_hour = int((self.model.speed / 4096) * 6)
+        done, i = True, 0
+        while done:
+            done = self.work_units[i].done
+            i += 1
+
+        start, end = i, min(i + wu_per_hour, len(self.work_units))
+        # print(done, i, start, end)
+        for j in range(start, end):
+            self.work_units[j].sims_done = 4096
+            self.work_units[j].sims_left = 0
+            self.work_units[j].done = True
+        self.done = True
+        for j in range(len(self.work_units)):
+            self.done = self.work_units[j].done
+        if self.done is True:
+            self.end = t
+            self.runtime = self.end - self.start
+
     def get_expected_runtime(self):
         """
         This method returns the expected runtime of the job
@@ -443,15 +519,26 @@ class Job:
         """
         count_non_zero = 0
         expected_run_time = 0
+        # Number of work units completed per hour
         wu_per_hour = int((self.model.speed / 4096) * 6)
+        # For each work unit
         for wu in self.work_units:
+            # Get the work-unit run time
             wu_run_time = wu.get_expected_time()
+            # If the run-time is non-zero increment the still running work units
             if wu_run_time > 0:
                 count_non_zero += 1
+            # Keep track of the job's expected run time
+            # Use the max variable because the work-units run in parallel
             expected_run_time = max(expected_run_time, wu_run_time)
+        # Return the expected run-time taking into considerations work-units not yet running
         return expected_run_time * int((count_non_zero / wu_per_hour))
 
     def get_objectives(self):
+        """
+        This method just returns the result from the expected runtime and the deadline
+        :return: expected run time, deadline
+        """
         return self.get_expected_runtime(), self.deadline
 
 
@@ -512,6 +599,8 @@ class WorkUnit:
             self.sims_left -= slow_wu
             if self.sims_left <= 0.0:
                 self.done = True
+                self.sims_left = 0
+                self.sims_done = self.sims
 
     def get_expected_time(self):
         """
@@ -525,6 +614,10 @@ class WorkUnit:
 
 
 def cxTwoPointCopy(ind1, ind2):
+    """
+    This method was taken from the DEAP website. It is a faster two-point crossover implementation for the genetic
+    algorithm when using numpy arrays instead of the default Python lists.
+    """
     size = len(ind1)
     cxpoint1 = random.randint(1, size)
     cxpoint2 = random.randint(1, size - 1)
@@ -538,103 +631,30 @@ def cxTwoPointCopy(ind1, ind2):
 
 
 def mavg(data, n=3):
+    """
+    This static method just returns a moving average of a series
+    :param data: the series to "smooth out"
+    :param n: the number of time steps to smooth over
+    :return: the n - moving average of data
+    """
     fitnesses = numpy.array(data)
     ret = numpy.cumsum(fitnesses, dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1:] / n
 
 
-def optimize_model_parameters():
-    computers = []
-    num_computers = 6
-    for ix in range(num_computers):
-        speed = 1.0
-        if ix >= 3:
-            speed = 2.0
-        computers.append(speed)
-
-    methods = ["none"] #, "scipy.basinhopping"] #, "scipy.minimize", "scipy.anneal", "deap.geneticalgorithm"]
-
-    plt.style.use("bmh")
-    name_one = "Images/Percentage-Not-Completed ("
-    name_two = "Images/Hours-Over-Budget ("
-    suffix = ").jpg"
-    count = 0
-
-    power_choices = []
-    start = 4096
-    while start <= 102400:
-        power_choices.append(start)
-        start += 4096
-
-    best_power_list, best_fit, best_average = [53248, 49152, 4096, 81920, 57344], float('+inf'), float('+inf')
-    while count < 1000:
-        # Optimization stuff
-        powers_list = list(numpy.random.choice(power_choices, size=5))
-        if count == 0:
-            powers_list = best_power_list
-        print("Attempt", count, best_power_list, best_fit, best_average)
-
-        if count % 5 == 0:
-            small_powers = numpy.random.randint(low=7, high=9, size=5)
-            for i in range(len(powers_list)):
-                if random.random() < 0.5:
-                    powers_list = best_power_list + pow(2, small_powers[i])
-                else:
-                    powers_list = best_power_list - pow(2, small_powers[i])
-
-        all_models = []  # Creates an empty list of models
-        # Loads the model probabilities in as a data frame
-        model_prob = pandas.read_csv("Data/ModelProb.csv")
-        # Loop through each model
-        for i in range(len(model_prob.columns)):
-            m = model_prob.columns[i]
-            all_models.append(Model(m, model_prob[m][0], powers_list[i]))
-
-        not_completed_results = []
-        for j in range(100):
-            for opt_method in methods:
-                seed = random.randint(1000000, 1000000000)
-                simulator = Simulator(all_models, computers, seed)
-                simulator.load_pdf("Data/JointProbTotal.csv")
-                result = simulator.run_simulation(3000, opt_method, print_status=False)
-
-                nc_one = result[0][0:1000]
-                mean_one = numpy.array(nc_one).mean()
-
-                nc_two = result[0][1000:2000]
-                mean_two = numpy.array(nc_two).mean()
-
-                nc_three = result[0][2000:3000]
-                mean_three = numpy.array(nc_three).mean()
-
-                not_completed_results.append([mean_one, mean_two, mean_three])
-
-                print("\t", j, numpy.array([mean_one, mean_two, mean_three]))
-
-        summary = numpy.zeros(3)
-        for i in range(len(not_completed_results)):
-            summary += not_completed_results[i]
-        summary /= len(not_completed_results)
-
-        fit = pow(abs(summary[0] - 0.3), 2) + pow(abs(summary[1] - 0.3), 2) + pow(abs(summary[2] - 0.3), 2)
-        if fit < best_fit:
-            best_fit = fit
-            best_average = summary.mean()
-            best_power_list = powers_list
-            print("Update!")
-
-        count += 1
-
-
 def run_experiments():
+    """
+    This method actually rungs the experiments and compared the different algorithms for scheduling
+    :return:
+    """
     all_models = []  # Creates an empty list of models
     # Loads the model probabilities in as a data frame
     model_prob = pandas.read_csv("Data/ModelProb.csv")
     # Loop through each model
     for m in model_prob.columns:
         all_models.append(Model(m, model_prob[m][0], model_prob[m][1]))
-
+    # Create a list of computers, half fast, half slow
     computers = []
     num_computers = 6
     for ix in range(num_computers):
@@ -643,25 +663,34 @@ def run_experiments():
             speed = 2.0
         computers.append(speed)
 
+    # The list of optimization methods available to the simulator
+    # none - this implements the as-is solution
+    # scipy.minimize - sequential least squared programming
+    # scipy.basinhopping - the simulated annealing algorithm a.k.a basin hopping
+    # deap.geneticalgorithm - the Genetic Algorithm
     methods = ["none", "scipy.basinhopping", "deap.geneticalgorithm"]
-    # "scipy.basinhopping", "scipy.minimize",
 
+    # These are just used for plotting pretty graphs
     plt.style.use("bmh")
     name_one = "Images/Percentage-Not-Completed ("
     name_two = "Images/Hours-Over-Budget ("
     suffix = ").jpg"
-    count = 1
 
-    while count < 30:
+    # For the number of experiments to run
+    count = 2
+    while count < 5:
+        # Generate a random seed
         seed = random.randint(1000000, 1000000000)
         not_completed_results, hours_over_results = [], []
         for opt_method in methods:
+            # Simulate each optimization algorithm given the above seed
             simulator = Simulator(all_models, computers, seed)
             simulator.load_pdf("Data/JointProbTotal.csv")
-            result = simulator.run_simulation(300, opt_method, print_status=True)
+            result = simulator.run_simulation(672*2, opt_method, print_status=True)
             not_completed_results.append(result[0])
             hours_over_results.append(result[1])
 
+        # Plot the graph of the percentage of graphs not completed
         for ix in range(len(not_completed_results)):
             plt.plot(mavg(not_completed_results[ix], 6), label=methods[ix])
         plt.title("Percentage of Jobs Not Completed Before Deadline")
@@ -671,6 +700,7 @@ def run_experiments():
         plt.cla()
         plt.close()
 
+        # Plot the graph of the average number of hours over the deadline for each job
         for ix in range(len(hours_over_results)):
             plt.plot(mavg(hours_over_results[ix], 6), label=methods[ix])
         plt.title("Average Hours over Deadline")
@@ -685,4 +715,3 @@ def run_experiments():
 
 if __name__ == '__main__':
     run_experiments()
-    # optimize_model_parameters()
