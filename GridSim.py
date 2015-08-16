@@ -668,7 +668,7 @@ def run_experiments():
     # scipy.minimize - sequential least squared programming
     # scipy.basinhopping - the simulated annealing algorithm a.k.a basin hopping
     # deap.geneticalgorithm - the Genetic Algorithm
-    methods = ["none", "scipy.basinhopping", "deap.geneticalgorithm"]
+    methods = ["none"] #, "scipy.basinhopping", "deap.geneticalgorithm"]
 
     # These are just used for plotting pretty graphs
     plt.style.use("bmh")
@@ -677,7 +677,7 @@ def run_experiments():
     suffix = ").jpg"
 
     # For the number of experiments to run
-    count = 2
+    count = 3
     while count < 5:
         # Generate a random seed
         seed = random.randint(1000000, 1000000000)
