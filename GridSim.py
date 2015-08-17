@@ -668,7 +668,7 @@ def run_experiments():
     # scipy.minimize - sequential least squared programming
     # scipy.basinhopping - the simulated annealing algorithm a.k.a basin hopping
     # deap.geneticalgorithm - the Genetic Algorithm
-    methods = ["none"] #, "scipy.basinhopping", "deap.geneticalgorithm"]
+    methods = ["none", "scipy.basinhopping", "deap.geneticalgorithm"]
 
     # These are just used for plotting pretty graphs
     plt.style.use("bmh")
@@ -678,7 +678,7 @@ def run_experiments():
 
     # For the number of experiments to run
     count = 3
-    while count < 5:
+    while count < 18:
         # Generate a random seed
         seed = random.randint(1000000, 1000000000)
         not_completed_results, hours_over_results = [], []
@@ -686,7 +686,7 @@ def run_experiments():
             # Simulate each optimization algorithm given the above seed
             simulator = Simulator(all_models, computers, seed)
             simulator.load_pdf("Data/JointProbTotal.csv")
-            result = simulator.run_simulation(672*2, opt_method, print_status=True)
+            result = simulator.run_simulation(672*3, opt_method, print_status=True)
             not_completed_results.append(result[0])
             hours_over_results.append(result[1])
 
@@ -709,6 +709,20 @@ def run_experiments():
         plt.clf()
         plt.cla()
         plt.close()
+
+        with open("Experiment-" + str(count) + ".txt", 'w+') as file_out:
+            for result in range(len(not_completed_results)):
+                out = methods[result] + ",Percent Not Completed," + str(result) + ","
+                out_two = methods[result] + ",Hours over Budget," + str(result) + ","
+                for ix in not_completed_results[result]:
+                    out += str(ix) + ","
+                for ix in hours_over_results[result]:
+                    out_two += str(ix) + ","
+                out += "\n"
+                out_two += "\n"
+                file_out.write(out)
+                file_out.write(out_two)
+                file_out.flush()
 
         count += 1
 
