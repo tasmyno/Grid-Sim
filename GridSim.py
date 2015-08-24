@@ -727,5 +727,62 @@ def run_experiments():
         count += 1
 
 
+def aggregate_results():
+    percent_not_completed_none = []
+    percent_not_completed_basin = []
+    percent_not_completed_evolution = []
+    hours_over_budget_none = []
+    hours_over_budget_basin = []
+    hours_over_budget_evolution = []
+    for i in range(3, 17):
+        file = "Experiment-" + str(i) + ".txt"
+        with open(file, 'r+') as f:
+            line = f.readline()
+            while line != "":
+                data = line.split(',')
+                method = data[0]
+                objective = data[1]
+                if objective == "Percent Not Completed":
+                    float_data = [float(x) for x in data[2:len(data) - 1:]]
+                    if method == "none":
+                        percent_not_completed_none.append(float_data)
+                    elif method == "scipy.basinhopping":
+                        percent_not_completed_basin.append(float_data)
+                    else:
+                        percent_not_completed_evolution.append(float_data)
+                else:
+                    float_data = [float(x) for x in data[2:len(data) - 1:]]
+                    if method == "none":
+                        hours_over_budget_none.append(float_data)
+                    elif method == "scipy.basinhopping":
+                        hours_over_budget_basin.append(float_data)
+                    else:
+                        hours_over_budget_evolution.append(float_data)
+                line = f.readline()
+
+    plt.style.use('bmh')
+    none = pandas.DataFrame(hours_over_budget_none).std() #.mean() for means
+    basin = pandas.DataFrame(hours_over_budget_basin).std()
+    evolution = pandas.DataFrame(hours_over_budget_evolution).std()
+    plt.plot(none[:2000:], label="No Optimization Method")
+    plt.plot(basin[:2000:], label="Simulated Annealing")
+    plt.plot(evolution[:2000:], label="Genetic Algorithm")
+    plt.legend()
+    plt.show()
+
+    axes = plt.gca()
+    axes.set_ylim([0.0, 0.05])
+    plt.style.use('bmh')
+    none = pandas.DataFrame(percent_not_completed_none).std()
+    basin = pandas.DataFrame(percent_not_completed_basin).std()
+    evolution = pandas.DataFrame(percent_not_completed_basin).std()
+    plt.plot(none[:2000:], label="No Optimization Method")
+    plt.plot(basin[:2000:], label="Simulated Annealing")
+    plt.plot(evolution[:2000:], label="Genetic Algorithm")
+    plt.legend()
+    plt.show()
+
+
 if __name__ == '__main__':
-    run_experiments()
+    # run_experiments()
+    aggregate_results()
